@@ -23,7 +23,7 @@ static ssize_t send_callback(nghttp2_session *session, const uint8_t *data, size
 	}
 	return ret;
 }
-static ssize_t recv_callback(nghttp2_session *session, uint8_t *buf, size_t length, int, void *user_data) {
+static ssize_t recv_callback(nghttp2_session *session, uint8_t *buf, ssize_t length, int, void *user_data) {
 	Connection *conn = (Connection*)user_data;
 	int ret = SSL_read(conn->ssl, buf, length);
 	if (ret <= 0) {
