@@ -21,6 +21,7 @@ static ssize_t send_callback(nghttp2_session *session, const uint8_t *data, size
 		}
 		return NGHTTP2_ERR_CALLBACK_FAILURE;
 	}
+	std::cout << "Done send callbacks" << "\n";
 	return ret;
 }
 
@@ -34,6 +35,7 @@ static ssize_t recv_callback(nghttp2_session *session, const uint8_t *buf, ssize
 		}
 		return NGHTTP2_ERR_CALLBACK_FAILURE;
 	}
+	std::cout << "Done recv callbacks" << "\n";
 	return ret;
 }
 
@@ -42,15 +44,16 @@ static int on_header_callback(nghttp2_session *sesison, const nghttp2_frame *fra
 		std::cout << std::string((const char*)name, namelen) << std::string((const char*)value, valuelen) << "\n";
 		
 	}
-
+	std::cout << "Done on header callbacks" << "\n";
 	return 0;
 }
 static int on_data_chunk_recv_callback(nghttp2_session *session, uint8_t flags, int32_t stream_id, const uint8_t *data, size_t len, void *user_data) {
+	std::cout << "Done on data chunk recv callbacks" << "\n";
 	return 0;
 }
 
 static int on_stream_close_callback(nghttp2_session *session, int32_t stream_id, uint32_t error_code, void *user_data) {
-	std::cout << "Done One Stream" << "\n";
+	std::cout << "Done on stream close callbacks" << "\n";
 	nghttp2_nv headers[] = {
 		// Method
 		{
@@ -116,7 +119,59 @@ int sendRequests(const char* url, const char* port) {
 
 	//TLS HANDSHAKE
 	SSL *ssl = SSL_new(ctx);
-	
+	SSL_set_tlsext_host_name(ssl, ip);
+	SSL_set_fd(ssl, fd);
+	if (SSL_connect(ssl) <= 0) {
+		ERR_print_errors_fp(stderr);
+	} else {
+		std::cout << "Done TLS HANDSHAKE" << "\n";
+	}
+
+	// Setup Headers
+	nghttp2_nv headers[] = {
+		{(uint8_t *)":method",(uint8_t *)"GET",(uint8_t)strlen(":method"),(uint8_t)strlen("GET"), NGHTTP2_NV_FLAG_NONE},
+		{(uint8_t *)":scheme",(uint8_t *)"https",(uint8_t)strlen(":scheme"),(uint8_t)strlen("https"), NGHTTP2_NV_FLAG_NONE},
+		{(uint8_t *)":authority",(uint8_t *)"www.google.com",(uint8_t)strlen(":authority"),(uint8_t)strlen("www.google.com"), NGHTTP2_NV_FLAG_NONE},
+		{(uint8_t *)":path",(uint8_t *)"/",(uint8_t)strlen(":path"),(uint8_t)strlen("/"), NGHTTP2_NV_FLAG_NONE},
+	}
+	std::cout << "Done Headers" << "\n";
+	nghttp2_session_callback *callbacks;
+	nghttp2_session_callbacks_new(&callbacks);
+	nghttp2_session_callbacks_set_send_callback(callbacks, send_callback);
+	nghttp2_session_callbacks_set_recv_callback(callbacks, recv_callback);
+	nghttp2_session_callbacks_set_on_header_callback(callbacks, on_header_callback);
+	nghttp2_session_callbacks_set_on_data_chunk_recv_callback(callbacks, on_data_chunk_recv_callback);
+	nghttp2_session_callbacks_set_on_stream_close_callback(callbacks, on_stream_close_callback);
+
+	std::cout << "Done Nghttp2 Session Callbacks" << "\n";
+
+	nghttp2_session *session;
+	Connection conn;
+	conn.fd = fd;
+	conn.ssl = ssl;
+	nghttp2_session_client_new(&session, callbacks, &conn);
+
+	std::cout << "Done Nghttp2 Session" << "\n";
+
+	nghttp2_submit_settings(session, NGHTTP2_FLAG_NONE, nullptr, 0);
+	std::cout << "Done Settings Frame" << "\n";
+
+	nghttp2_submit_request(session, nullptr, headers, 5, nullptr, nullptr);
+	std::cout << "Done Submit Request" << "\n";
+	if (nghttp2_session_want_write(session)) {
+		nghttp2_session_send(session);
+	}
+	if (nghttp2_session_want_read(session)) {
+		nghttp2_session_recv(session);
+	}
+	std::cout << "Done Events Send | Read" << "\n";
+
+	nghttp2_session_del(session);
+	SSL_shutdown(ssl);
+	SSL_free(ssl);
+	close(fd);
+	SSL_CTX_free(ctx);
+	return 0;
 }
 int main(int argc, char *argv[]) {
 	if (argc != 3) {
